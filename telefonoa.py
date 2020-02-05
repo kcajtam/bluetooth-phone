@@ -368,7 +368,7 @@ class PhoneManager(object):
         :return:
         """
         print("Call in progress")
-        print("Call direction: " + properties["Status"])
+        print("Call direction: " + properties["State"])
         self.call_in_progress = True
 
     def set_call_ended(self, object):
@@ -516,10 +516,11 @@ class Telephone(object):
         if GPIO.input(pin_num) is GPIO.HIGH:
             print("Receiver Up")
             self.receiver_down = False
-            self.start_file("/home/pi/telefonoa/dial_tone.wav", loop=True)
+            self.start_file("/home/pi/bluetooth-phone/dial_tone.wav", loop=True)
         else:
             print("Receiver Down")
             if self.phone_manager.call_in_progress:
+                print("Hanging up")
                 self.phone_manager.end_call()
             self.receiver_down = True
             self.stop_file()  # kill thread.
@@ -612,7 +613,7 @@ class Telephone(object):
                                 print("Selected %d" % c)
                                 if c == 9:
                                     print("Turning system off")
-                                    self.start_file("/home/pi/telefonoa/turnoff.wav")
+                                    self.start_file("/home/pi/bluetooth-phone/turnoff.wav")
                                     time.sleep(6)
                                     subprocess.call("sudo shutdown -h now", shell=True)
                                 elif c <= len(self.phonebook):
