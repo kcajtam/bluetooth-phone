@@ -360,7 +360,7 @@ class PhoneManager(object):
         self.bt_conn.modem_object.connect_to_signal("CallRemoved", self.set_call_ended,
                                              dbus_interface='org.ofono.VoiceCallManager')
 
-    def set_call_in_progress(self, object, properties):
+    def set_call_in_progress(self, path, properties):
         """
         Event triggered when a call is initiated.
         :param object: The address of the call object from ofono
@@ -368,8 +368,24 @@ class PhoneManager(object):
         :return:
         """
         print("Call in progress")
-        print("Call direction: " + properties["State"])
+        direction = properties['State']
+        print("Call direction: {0}".format(direction))
         self.call_in_progress = True
+        if direction == 'incoming':
+            print ("Inbound call detected on {s}".format(path)
+            self.active_call_path = path
+        else:
+            print("Originating outbound call")
+            self.active_call_path = None
+    
+    def answer_call():
+        """ Answer the call on the modem path specified by self.active_call_path """
+	call = dbus.Interface(bus.get_object('org.ofono', path),
+						'org.ofono.VoiceCall')
+	time.sleep(2)	
+	call.Answer()
+	print("    Voice Call [ %s ] Answered" % (self.active_call_path))
+
 
     def set_call_ended(self, object):
         """
@@ -516,14 +532,18 @@ class Telephone(object):
         if GPIO.input(pin_num) is GPIO.HIGH:
             print("Receiver Up")
             self.receiver_down = False
-            self.start_file("/home/pi/bluetooth-phone/dial_tone.wav", loop=True)
+            if self.phone_manager.call_in_progress:
+                self.phone_manager.answer_call()
+            else:
+                # else we're picking the receiver up to begin dialing
+                self.start_file("/home/pi/bluetooth-phone/dial_tone.wav", loop=True)
         else:
             print("Receiver Down")
             if self.phone_manager.call_in_progress:
                 print("Hanging up")
                 self.phone_manager.end_call()
             self.receiver_down = True
-            self.stop_file()  # kill thread.
+            self.stop_file()  # kill thread that might be playing the dial tone.
 
         print("Receiver Down?: {0}".format(self.receiver_down))
 
