@@ -49,7 +49,6 @@ class RotaryDial(Thread):
         :param pin_num: GPIO pin triggering the event (Can only be self.ns_pin here)
         """
         self.value += 1
-        print("value incremented to %s" % self.value)
 
     def run(self):
         while not self.finish:
@@ -66,7 +65,11 @@ class RotaryDial(Thread):
 
 class bt_connection(object):
     """
-    Singleton class that deals with the bluetooth connection between phone and RPi
+    Singleton class that deals with the bluetooth connection between phone and RPi.
+    Notes:
+        In ofono a modem is a previously paired bluetooth device. The list of all such modems is
+        returned by ofono.Manager.GetModems() Note that modem can be present but there may be no active
+        connection i.e. it is offline. In order to start accepting or making call the Modem must be present and online.
     """
     def __init__(self,_bus, _loop_started,_status_service):
 
@@ -74,14 +77,16 @@ class bt_connection(object):
             raise Exception("Main loop must be started before creating a connection.")
 
         self.bus = _bus
-        self.pairing_agent = None  # Application defined pairing agent.
-        self.discoverable_status = 0  # Takes value 0 or 1 (not a boolean)
-        self.has_modems = False  # Flag indicating if at least one modem ( BT device has been paired)
+        self.pairing_agent = None       # Application defined pairing agent.
+        self.discoverable_status = 0    # Takes value 0 or 1 (not a boolean)
+        self.has_modems = False         # Flag indicating if at least one modem ( BT device has been paired)
         self.is_online = False
-        self.modem_object = None  # The modem path object
-        self.modem_properties = None  # properties of the modem. Array[dbus.String]
-        self.bt_device = None #RPi bluetooth adapter (Hardware)
-        self.manager = None  # ofono manager object
+        self.modem_object = None        # The modem path object
+        self.modem_properties = None    # properties of the modem. Array[dbus.String]
+        self.bt_device = None           # RPi bluetooth adapter (Hardware)
+        self.manager = None             # ofono manager object
+        self.READY = "READY"            # flag indicating the status of the modem
+
 
         """ 
             Status_service is a reference to the BT_link_ready service instance created by the phone manager.
@@ -110,8 +115,8 @@ class bt_connection(object):
         """
         Flag indicating that modem exists. This is the case when at least one bt device has paired even if it is
         not currently connected
-        @ Returns tuple of modem object and properties or None,None
-        @ Sets flags has_modem and is_online.
+        :returns:  tuple of modem object and properties or None,None
+        :side effects - Sets flags has_modem and is_online.
         """
         modem = None
         try:
@@ -134,24 +139,25 @@ class bt_connection(object):
 
     def _modem_status_change(self, name, value):
         """
-            Handler for modem status changes. If modem is connecting (online) then instantiate the VoiceCallManager
+            Handler for modem status changes.
+            If modem is connected (online) then instantiate the VoiceCallManager
             and start listening for calls.
             This is the only place where the bluetooth connction can be established.
-            @name: string - Name of property change that trigger this handler
-            @value: dbus datatype - The new value that property takes
+            @name: string : Name of property change that trigger this handler
+            @value: dbus datatype : The new value that property takes
         """
         if name == 'Online':
             if value == dbus.Boolean(True, variant_level=1):
                 print("Previously paired mobile phone has just connected.")
                 self._refresh_pulseaudio_cards()
                 print("fire signal to indicate that we can start listening for calls")
-                self.status_service.emit("ready")
+                self.status_service.emit(self.READY)
             else:
                 print("phone has disconnected from RPi")
 
     def _modem_is_online(self, props):
         """ Flag indicating that modem[0][0] is online """
-        if not props is None:
+        if props is not None:
             return props[dbus.String('Online')] == 1
         else:
             raise Exception("No modem available to test status")
@@ -292,7 +298,7 @@ class AutoAcceptAgent(dbus.service.Object):
 
 class phone_status_service(dbus.service.Object):
     def __init__(self):
-        bus_name = dbus.service.BusName("org.frank", bus=dbus.SystemBus())
+        bus_name = dbus.service.BusName("org.frank", bus=dbus.SystemBus()) # The dbus connection
         super().__init__(bus_name, "/")
         self._link_is_ready = False
 
@@ -308,25 +314,36 @@ class PhoneManager(object):
         """
         The PhoneManager class manages the setup and pull down of calls on an open bluetooth connection.
         """
+        # misc. constants
+        self.READY = "READY"            # Flag indicating that modem has changed state t being ready for calls.
+        self.ALREADY_ON = "ALREADYON"   # Flag indicating that there was a phone connected at startup
+
         # A flag to indicate that the Mainloop has started so its okay to connect to signals.
         self.loop_started = False
+        self.active_call_path = None    # path of phone (ofono modem object) currently connected
+        self.call_in_progress = False
 
+        # Set up mainloop for Dbus services and start status_service that is used to broadcast call readiness of phone
         dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
         self.bus = dbus.SystemBus()
         self.status_service = phone_status_service()
         self._setup_dbus_loop()  # spawn thread that monitors the mainloop.
 
+        # bt connection object that wraps ofono functions related to bt connection
         self.bt_conn = bt_connection(self.bus, self.loop_started, self.status_service)
+        # ofono object that controls volume functions. Note these functions called from telephone object.
+        self.volume_controller = None
+        self.mic_volume = None
+        self.speaker_volume = None
+        self.muted = None
 
-        """ If there is a modem and it is connected the start listening for calls.
-            If there is no modem or its not connected then the listeners created in the bt_connection object
-            will listen on the mainloop for such conditions to occur. When they do the bt_conn """
+        # A modem must be present and it must be online to start listening for calls.
         if self.bt_conn.has_modems and self.bt_conn.is_online:
-            self._listen_for_calls("already_on")
+            self._listen_for_calls(self.ALREADY_ON)
         else:
-            self._listen_to_phone_ready()
+            # if not then listen on the dbus status_service for the modem to be available and online.
+            self._listen_to_phone_ready_service()
 
-        self.call_in_progress = False
         print("Bluetooth connection configured")
 
     def _setup_dbus_loop(self):
@@ -339,7 +356,7 @@ class PhoneManager(object):
         self._thread.start()
         self.loop_started = True
 
-    def _listen_to_phone_ready(self):
+    def _listen_to_phone_ready_service(self):
         """
             Listen for the emit signal from custom service org.frank. Only necesary when no modem was
             present at startup
@@ -348,44 +365,45 @@ class PhoneManager(object):
         status_service_interface.connect_to_signal('emit', self._listen_for_calls)
 
     def _listen_for_calls(self, value):
-        if value == "ready":
+        if value == self.READY:
             print("Handling phone ready signal.")
         else:
             print("Modem was already connected and online")
-        print("Create listener for calls")
-        self.voice_call_manager = dbus.Interface(self.bt_conn.modem_object, 'org.ofono.VoiceCallManager')
-        print("Device name = {:s} ".format(self.bt_conn.modem_properties[dbus.String('Name')]))
-        self.bt_conn.modem_object.connect_to_signal("CallAdded", self.set_call_in_progress,
-                                             dbus_interface='org.ofono.VoiceCallManager')
-        self.bt_conn.modem_object.connect_to_signal("CallRemoved", self.set_call_ended,
-                                             dbus_interface='org.ofono.VoiceCallManager')
+
+        if self.bt_conn.has_modems:
+            print("Create listener for calls")
+            self.voice_call_manager = dbus.Interface(self.bt_conn.modem_object, 'org.ofono.VoiceCallManager')
+            print("Device name = {:s} ".format(self.bt_conn.modem_properties[dbus.String('Name')]))
+            self.bt_conn.modem_object.connect_to_signal("CallAdded", self.set_call_in_progress,
+                                                 dbus_interface='org.ofono.VoiceCallManager')
+            self.bt_conn.modem_object.connect_to_signal("CallRemoved", self.set_call_ended,
+                                                 dbus_interface='org.ofono.VoiceCallManager')
+            self._setup_volume_control()
 
     def set_call_in_progress(self, path, properties):
         """
         Event triggered when a call is initiated.
-        :param object: The address of the call object from ofono
+        :param path: The path (address) of the call object from ofono
         :param properties: Properties of the call
         :return:
         """
         print("Call in progress")
-        direction = properties['State']
-        print("Call direction: {0}".format(direction))
+        direction = properties['State']   # Incoming or dialing (outbound)
+        print(f"Call direction: {direction}")
         self.call_in_progress = True
         if direction == 'incoming':
-            print ("Inbound call detected on {s}".format(path)
+            print(F"Inbound call detected on {path}")
             self.active_call_path = path
         else:
             print("Originating outbound call")
             self.active_call_path = None
     
-    def answer_call():
+    def answer_call(self):
         """ Answer the call on the modem path specified by self.active_call_path """
-	call = dbus.Interface(bus.get_object('org.ofono', path),
-						'org.ofono.VoiceCall')
-	time.sleep(2)	
-	call.Answer()
-	print("    Voice Call [ %s ] Answered" % (self.active_call_path))
-
+        call = dbus.Interface(self.bus.get_object('org.ofono', self.active_call_path), 'org.ofono.VoiceCall')
+        time.sleep(2)
+        call.Answer()
+        print(f"    Voice Call {self.active_call_path} Answered")
 
     def set_call_ended(self, object):
         """
@@ -418,6 +436,39 @@ class PhoneManager(object):
                 self.start_file("/home/pi/Documents/repos/bluetooth-phone/format_incorrect.wav")
             else:
                 print(name)
+
+    """ Volume control via ofono org.ofono.CallVolume interface"""
+    def _setup_volume_control(self):
+        if self.active_call_path is not None:
+            self.volume_controller = dbus.Interface(self.bus.get_object('org.ofono', self.active_call_path),
+                                                    'org.ofono.CallVolume')
+            self.speaker_volume = self.volume_controller.GetProperties()['SpeakerVolume']
+            self.mic_volume = self.volume_controller.GetProperties()['MicrophoneVolume']
+            self.muted = self.volume_controller.GetProperties()['Muted']
+
+    """ API for controlling volume from handset."""
+    def volume_up(self):
+        increment = 5
+        if self.volume_controller is not None:
+            self.speaker_volume += increment
+            self.mic_volume += increment
+            self.volume_controller.SetProperty('SpeakerVolume', self.speaker_volume)
+            self.volume_controller.SetProperty('MicrophoneVolume', self.mic_volume)
+
+    def volume_down(self):
+        increment = 5
+        if self.volume_controller is not None:
+            self.speaker_volume -= increment
+            self.mic_volume -= increment
+            self.volume_controller.SetProperty('SpeakerVolume', self.speaker_volume)
+            self.volume_controller.SetProperty('MicrophoneVolume', self.mic_volume)
+
+    def mute_toggle(self):
+        if self.volume_controller is not None:
+            self.muted = self.volume_controller.GetProperties()['Muted']
+            self.muted = not self.muted
+            self.volume_controller.SetProperty('Muted', self.muted)
+
 
     def start_file(self, filename, loop=False):
         """
@@ -476,20 +527,30 @@ class Telephone(object):
     """
     CHUNK = 1024
 
-    def __init__(self, num_pin, receiver_pin, discoverable_pin):
+    def __init__(self, num_pin, receiver_pin, discoverable_pin=None, volume_pin_dict=None):
         GPIO.setmode(GPIO.BCM)
         self.receiver_pin = receiver_pin
         self.number_q = Queue.Queue()
+
         self.discoverable_pin = discoverable_pin  # white button to trigger discovery and pairing.
         self.discoverable = False
+        self.has_volume_controller = False
+        self.stop_audio = False
+        self.playing_audio = False
+        self.finish = False
+
+        if volume_pin_dict is not None:
+            self.has_volume_controller = True
+            self.volume_up_pin = volume_pin_dict['VOLUME_UP_PIN']
+            self.volume_down_pin = volume_pin_dict['VOLUME_DOWN_PIN']
+            self.volume_mute_pin = volume_pin_dict['VOLUME_MUTE_PIN']
+        else:
+            self.has_volume_controller = False
 
         self.phone_manager = PhoneManager()
         self.bt_conn = self.phone_manager.bt_conn
 
         self.rotary_dial = RotaryDial(num_pin, self.number_q)
-        self.stop_audio = False
-        self.playing_audio = False
-        self.finish = False
 
         # Load fast_dial numbers
         with open("phonebook.yaml", 'r') as stream:
@@ -497,9 +558,26 @@ class Telephone(object):
 
         print(self.phonebook)
 
-        # Set up the white button to make it discoverable by preiously unpaired BT device.
-        GPIO.setup(self.discoverable_pin, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
-        GPIO.add_event_detect(self.discoverable_pin, GPIO.RISING, callback=self.make_discoverable, bouncetime=2000)
+        # Discoverability and volume control may not be available of phone model used. If they are then set up listeners
+        if discoverable_pin is not None:
+            # Set up the button to make it discoverable by preiously unpaired BT device.
+            print("Discoverable button available")
+            GPIO.setup(self.discoverable_pin, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
+            GPIO.add_event_detect(self.discoverable_pin, GPIO.RISING, callback=self.make_discoverable, bouncetime=2000)
+
+        if self.has_volume_controller:
+            # Set volume up pin
+            print("Set up volume controls")
+            GPIO.setup(self.volume_up_pin, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
+            GPIO.add_event_detect(self.volume_up_pin, GPIO.RISING, callback=self.volume_up, bouncetime=2000)
+            # Set volume down pin
+            GPIO.setup(self.volume_down_pin, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
+            GPIO.add_event_detect(self.volume_down_pin, GPIO.RISING, callback=self.volume_down, bouncetime=2000)
+            # set up mute toggling function
+            GPIO.setup(self.volume_mute_pin, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
+            GPIO.add_event_detect(self.volume_mute_pin, GPIO.RISING, callback=self.volume_mute_toggle, bouncetime=2000)
+        else:
+            print("No volume controls available")
 
         # Receiver relevant functions
         GPIO.setup(self.receiver_pin, GPIO.IN, pull_up_down=GPIO.PUD_UP)
@@ -509,7 +587,7 @@ class Telephone(object):
             self.receiver_down = True
         # self.receiver_changed(self.receiver_pin)
         print("Initial receiver status = down ? {0}".format(self.receiver_down))
-        GPIO.add_event_detect(self.receiver_pin, GPIO.BOTH, callback=self.receiver_changed, bouncetime=500)
+        GPIO.add_event_detect(self.receiver_pin, GPIO.BOTH, callback=self.receiver_changed, bouncetime=1000)
 
         # Start rotary dial thread
         self.rotary_dial.start()
@@ -522,11 +600,23 @@ class Telephone(object):
         """
         self.bt_conn.make_discoverable()
 
+    def volume_up(self, pin):
+        self.phone_manager.volume_up()
+        print(f"Mic volume = {self.phone_manager.mic_volume}")
+
+    def volume_down(self, pin):
+        self.phone_manager.volume_down()
+        print(f"Mic volume = {self.phone_manager.mic_volume}")
+
+    def volume_mute_toggle(self, pin):
+        self.phone_manager.mute_toggle()
+        print(f"Toggle mute: Current status = {self.phone_manager.muted}")
+
     def receiver_changed(self, pin_num):
         """
         Event triggered when the receiver is hung of lifted.
         :param pin_num: GPIO pin triggering the event (Can only be self.receiver_pin here)
-        :return:
+        :return: None
         """
         print("Receiver status changed..")
         if GPIO.input(pin_num) is GPIO.HIGH:
@@ -545,7 +635,6 @@ class Telephone(object):
             self.receiver_down = True
             self.stop_file()  # kill thread that might be playing the dial tone.
 
-        print("Receiver Down?: {0}".format(self.receiver_down))
 
     def start_file(self, filename, loop=False):
         """
@@ -665,9 +754,15 @@ class Telephone(object):
 if __name__ == '__main__':
     HOERER_PIN = 13
     NS_PIN = 19
-    DISCOVERABLE_PIN = 20  # make RPi discoverable - white button
+    DISCOVERABLE_PIN = 20   # make RPi discoverable - Temporary on white button
 
-    t = Telephone(NS_PIN, HOERER_PIN, DISCOVERABLE_PIN)
+    # Dictionary of pins for volume control functions. If no volume controls then set to None.
+    VOLUME_PIN_DICT = {'VOLUME_UP_PIN': 23,
+                       'VOLUME_DOWN_PIN': 24,
+                       'VOLUME_MUTE_PIN': 25
+                       }
+
+    t = Telephone(NS_PIN, HOERER_PIN, DISCOVERABLE_PIN, VOLUME_PIN_DICT)
 
     try:
         t.dialing_handler()
