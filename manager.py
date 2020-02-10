@@ -8,7 +8,7 @@ import wave
 import alsaaudio
 
 import dbus_custom_services
-import bt_connection
+import bluetooth
 import config
 
 class PhoneManager(object):
@@ -32,7 +32,7 @@ class PhoneManager(object):
         self._setup_dbus_loop()  # spawn thread that monitors the mainloop.
 
         # bt connection object that wraps ofono functions related to bt connection
-        self.bt_conn = bt_connection.bt_connection(self.bus, self.loop_started, self.status_service)
+        self.bt_conn = bluetooth.connection(self.bus, self.loop_started, self.status_service)
         # ofono object that controls volume functions. Note these functions called from telephone object.
         self.volume_controller = None
         self.mic_volume = None
@@ -153,16 +153,14 @@ class PhoneManager(object):
 
     """ API for controlling volume from handset."""
 
-    def volume_up(self):
-        increment = 5
+    def volume_up(self, increment=5):
         if self.volume_controller is not None:
             self.speaker_volume += increment
             self.mic_volume += increment
             self.volume_controller.SetProperty('SpeakerVolume', dbus.Byte(int(self.speaker_volume)))
             self.volume_controller.SetProperty('MicrophoneVolume', dbus.Byte(int(self.mic_volume)))
 
-    def volume_down(self):
-        increment = 5
+    def volume_down(self, increment=5):
         if self.volume_controller is not None:
             self.speaker_volume -= increment
             self.mic_volume -= increment

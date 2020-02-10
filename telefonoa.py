@@ -19,7 +19,7 @@ from threading import Event
 import queue as Queue
 import numpy as np
 import struct
-#from subprocess import call
+
 import subprocess
 
 import config
@@ -43,11 +43,11 @@ class RotaryDial(Thread):
         self.pulse_threshold = 0.2
         # self.pulse_threshold = 0.2
         self.finish = False
-        GPIO.add_event_detect(ns_pin, GPIO.FALLING, callback=self.__increment, bouncetime=90)
+        GPIO.add_event_detect(ns_pin, GPIO.FALLING, callback=self.__increment, bouncetime=config.DIAL_BOUNCE_TIME)
 
     def __increment(self, pin_num):
         """
-        Increment function trigered each time a falling pulse is detected.
+        Increment function trigerred each time a falling pulse is detected.
         :param pin_num: GPIO pin triggering the event (Can only be self.ns_pin here)
         """
         self.value += 1
@@ -110,19 +110,19 @@ class Telephone(object):
             # Set up the button to make it discoverable by preiously unpaired BT device.
             print("Discoverable button available")
             GPIO.setup(self.discoverable_pin, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
-            GPIO.add_event_detect(self.discoverable_pin, GPIO.RISING, callback=self.make_discoverable, bouncetime=2000)
+            GPIO.add_event_detect(self.discoverable_pin, GPIO.RISING, callback=self.make_discoverable, bouncetime=config.BUTTON_BOUNCE_TIME)
 
         if self.has_volume_controller:
             # Set volume up pin
             print("Set up volume controls")
             GPIO.setup(self.volume_up_pin, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
-            GPIO.add_event_detect(self.volume_up_pin, GPIO.RISING, callback=self.volume_up, bouncetime=2000)
+            GPIO.add_event_detect(self.volume_up_pin, GPIO.RISING, callback=self.volume_up, bouncetime=config.BUTTON_BOUNCE_TIME)
             # Set volume down pin
             GPIO.setup(self.volume_down_pin, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
-            GPIO.add_event_detect(self.volume_down_pin, GPIO.RISING, callback=self.volume_down, bouncetime=2000)
+            GPIO.add_event_detect(self.volume_down_pin, GPIO.RISING, callback=self.volume_down, bouncetime=config.BUTTON_BOUNCE_TIME)
             # set up mute toggling function
             GPIO.setup(self.volume_mute_pin, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
-            GPIO.add_event_detect(self.volume_mute_pin, GPIO.RISING, callback=self.volume_mute_toggle, bouncetime=2000)
+            GPIO.add_event_detect(self.volume_mute_pin, GPIO.RISING, callback=self.volume_mute_toggle, bouncetime=config.BUTTON_BOUNCE_TIME)
         else:
             print("No volume controls available")
 
@@ -134,7 +134,7 @@ class Telephone(object):
             self.receiver_down = True
         # self.receiver_changed(self.receiver_pin)
         print("Initial receiver status = down ? {0}".format(self.receiver_down))
-        GPIO.add_event_detect(self.receiver_pin, GPIO.BOTH, callback=self.receiver_changed, bouncetime=1000)
+        GPIO.add_event_detect(self.receiver_pin, GPIO.BOTH, callback=self.receiver_changed, bouncetime=config.RECEIVER_BOUNCE_TIME)
 
         # Start rotary dial thread
         self.rotary_dial.start()
@@ -148,11 +148,11 @@ class Telephone(object):
         self.bt_conn.make_discoverable()
 
     def volume_up(self, pin):
-        self.phone_manager.volume_up()
+        self.phone_manager.volume_up(config.VOLUME_INCREMENT)
         print(f"Volume Up: Mic volume = {self.phone_manager.mic_volume}")
 
     def volume_down(self, pin):
-        self.phone_manager.volume_down()
+        self.phone_manager.volume_down(config.VOLUME_INCREMENT)
         print(f"Volumne Down: Mic volume = {self.phone_manager.mic_volume}")
 
     def volume_mute_toggle(self, pin):
@@ -288,7 +288,7 @@ class Telephone(object):
             else:
                 """
                 If the receiver is down the must clear the number and the queue constantly because 
-                noise on the dialer pins can cause spiriuos rising edges when the reciever is lifted or put down.
+                noise on the dialer pins can cause spirious rising edges when the receiver is lifted or put down.
                 """
                 number = ''
                 if len(self.number_q.queue) >= 1:

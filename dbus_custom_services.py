@@ -2,13 +2,16 @@ import dbus
 import dbus.service
 
 class AutoAcceptAgent(dbus.service.Object):
-    """ Application pairing agent """
+    """
+        Application pairing agent. Defualt use is in NoInputNoOutput mode so none of the security methods will be used
+    """
 
     AGENT_INTERFACE = 'org.bluez.Agent1'
 
     def __init__(self, bus, path):
         self.exit_on_release = True
         super().__init__(bus, path)
+
 
     def ask(self, prompt):
         try:
@@ -78,6 +81,10 @@ class AutoAcceptAgent(dbus.service.Object):
         print("Cancel")
 
 class phone_status_service(dbus.service.Object):
+    """
+    dbus service for broadcasting that the phone is ready to start accepting calls: a mobile has been connected, the
+    bluetooth conenction has been refreshed in pulse audio etc.
+    """
     def __init__(self):
         bus_name = dbus.service.BusName("org.frank", bus=dbus.SystemBus()) # The dbus connection
         super().__init__(bus_name, "/")

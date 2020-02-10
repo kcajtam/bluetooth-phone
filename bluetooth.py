@@ -5,7 +5,7 @@ import subprocess
 import config
 
 
-class bt_connection(object):
+class connection(object):
     """
     Singleton class that deals with the bluetooth connection between phone and RPi.
     Notes:
