@@ -189,12 +189,13 @@ class bt_connection(object):
         subprocess.run(["pacmd unload-module module-udev-detect && pacmd load-module module-udev-detect"], shell=True,
                        capture_output=False)
 
-    def make_discoverable(self):
+    def make_discoverable(self, duration=30):
         """
         Set the RPi BT device to discoverable and pairable for 30 seconds. This is used only for pairing
         device (e.g. a mobile phone) that has not previously been paired.
         """
         print("Placing the RPi into discoverable mode and turn pairing on")
+        print(f"Discoverable for {duration} seconds only")
 
         self.bt_device = dbus.Interface(self.bus.get_object("org.bluez", "/org/bluez/hci0"),
                                         "org.freedesktop.DBus.Properties")
@@ -209,14 +210,13 @@ class bt_connection(object):
 
             if self.pairing_agent is None:
                 print("registering auto accept pairing agent")
-                print("Discoverable for 30 seconds only")
                 path = "/RPi/Agent"
                 self.pairing_agent = AutoAcceptAgent(self.bus, path)
                 # Register application's agent for headless operation
                 bt_agent_manager.RegisterAgent(path, "NoInputNoOutput")
                 bt_agent_manager.RequestDefaultAgent(path)
             # Setup discoverability
-            self.bt_device.Set("org.bluez.Adapter1", "DiscoverableTimeout", dbus.UInt32(30))
+            self.bt_device.Set("org.bluez.Adapter1", "DiscoverableTimeout", dbus.UInt32(duration))
             self.bt_device.Set("org.bluez.Adapter1", "Discoverable", True)
             self.bt_device.Set("org.bluez.Adapter1", "Pairable", True)
 
@@ -378,6 +378,7 @@ class PhoneManager(object):
                                                  dbus_interface='org.ofono.VoiceCallManager')
             self.bt_conn.modem_object.connect_to_signal("CallRemoved", self.set_call_ended,
                                                  dbus_interface='org.ofono.VoiceCallManager')
+            self.active_call_path = self.bt_conn.modem_object.object_path
             self._setup_volume_control()
 
     def set_call_in_progress(self, path, properties):
@@ -439,7 +440,8 @@ class PhoneManager(object):
 
     """ Volume control via ofono org.ofono.CallVolume interface"""
     def _setup_volume_control(self):
-        if self.active_call_path is not None:
+        #if self.active_call_path is not None:
+        if self.bt_conn.has_modems:
             self.volume_controller = dbus.Interface(self.bus.get_object('org.ofono', self.active_call_path),
                                                     'org.ofono.CallVolume')
             self.speaker_volume = self.volume_controller.GetProperties()['SpeakerVolume']
@@ -452,22 +454,25 @@ class PhoneManager(object):
         if self.volume_controller is not None:
             self.speaker_volume += increment
             self.mic_volume += increment
-            self.volume_controller.SetProperty('SpeakerVolume', self.speaker_volume)
-            self.volume_controller.SetProperty('MicrophoneVolume', self.mic_volume)
+            self.volume_controller.SetProperty('SpeakerVolume', dbus.Byte(int(self.speaker_volume)))
+            self.volume_controller.SetProperty('MicrophoneVolume', dbus.Byte(int(self.mic_volume)))
 
     def volume_down(self):
         increment = 5
         if self.volume_controller is not None:
             self.speaker_volume -= increment
             self.mic_volume -= increment
-            self.volume_controller.SetProperty('SpeakerVolume', self.speaker_volume)
-            self.volume_controller.SetProperty('MicrophoneVolume', self.mic_volume)
+            self.volume_controller.SetProperty('SpeakerVolume', dbus.Byte(int(self.speaker_volume)))
+            self.volume_controller.SetProperty('MicrophoneVolume', dbus.Byte(int(self.mic_volume)))
 
     def mute_toggle(self):
-        if self.volume_controller is not None:
-            self.muted = self.volume_controller.GetProperties()['Muted']
-            self.muted = not self.muted
-            self.volume_controller.SetProperty('Muted', self.muted)
+        """ There is a bug in ofono. Mute property setter is not implemented"""
+        print("Mute not implemented.")
+        # if self.volume_controller is not None:
+        #     self.muted = self.volume_controller.GetProperties()[dbus.String('Muted')]
+        #     self.muted = not self.muted
+        #     print(f"muted {self.muted}")
+        #     self.volume_controller.SetProperty('Muted', dbus.Boolean(self.muted))
 
 
     def start_file(self, filename, loop=False):
@@ -602,11 +607,11 @@ class Telephone(object):
 
     def volume_up(self, pin):
         self.phone_manager.volume_up()
-        print(f"Mic volume = {self.phone_manager.mic_volume}")
+        print(f"Volume Up: Mic volume = {self.phone_manager.mic_volume}")
 
     def volume_down(self, pin):
         self.phone_manager.volume_down()
-        print(f"Mic volume = {self.phone_manager.mic_volume}")
+        print(f"Volumne Down: Mic volume = {self.phone_manager.mic_volume}")
 
     def volume_mute_toggle(self, pin):
         self.phone_manager.mute_toggle()
@@ -707,6 +712,9 @@ class Telephone(object):
             if not self.receiver_down:  # Handling of the dialing when the receiver is lifted
                 try:
                     c = self.number_q.get(timeout=5)
+                    # turn off dial tone as soon as a number is dialed.
+                    if not number == '' and self.playing_audio:
+                        self.stop_file()
                     number += str(c)
                 except Queue.Empty:
                     if number is not '':
