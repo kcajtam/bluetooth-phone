@@ -66,6 +66,33 @@ class RotaryDial(Thread):
                 self.value = 0
 
 
+class Ringer(Thread):
+    """
+    Thread to run the ringer singals
+    """
+    def __init__(self, ringer_pin, sequence):
+        Thread.__init__(self)
+        self.pin = ringer_pin
+        GPIO.setup(self.pin, GPIO.OUT)
+        # sue the PWM GPIO to control the ringer.
+        self.ringer = GPIO.PWM(self.pin, config.RINGER_FREQUENCY)
+        self.seq = sequence*1000.0
+
+        self.is_ringing = False # Gettable/Settable flag to start/stop ringing
+
+    def run(self):
+        ringing = True
+        while self.is_ringing:
+            for x in range(len(self.seq)):
+                if not self.is_ringing:
+                    if ringing:
+                        self.ringer.stop()
+                    else:
+                        self.ringer.start(100)
+                    time.sleep(self.seq[x])
+                else:
+                    break
+
 
 
 class Telephone(object):

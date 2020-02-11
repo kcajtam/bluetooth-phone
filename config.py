@@ -1,20 +1,27 @@
+from numpy import array
 """
 Configuration file
 """
 
 """ GPIO pin configurations """
 
-# Receiver / handset GPIO pin
+# Ringer frequency in hertz
+RINGER_FREQUENCY = 25
+# Ringer pattern in seconds
+RINGER_PATTERN = array([0.4, 0.2, 0.4, 2.0])   # time on,off,on,off
+# ringer gpio pin on RPi3B+
+RINGER_PIN = 12
+# Receiver / handset GPIO pin on RPi3B+
 HOERER_PIN = 13
 
-# Dialer GPIO pin
+# Dialer GPIO pin on RPi3B+
 NS_PIN = 19
 
-# GPIO pin for making RPi discoverable
+# GPIO pin for making RPi discoverable on RPi3B+
 DISCOVERABLE_PIN = 20
 
 
-""" Dictionary of GPIO pins for volume control functions. If no volume controls then set to None.
+""" Dictionary of GPIO pins on RPi3B+ for volume control functions. If no volume controls then set to None.
     Peculiar to 1950 model phone used in this project. It has 5 external buttons for PABX functions that have been 
     used for other functions 
 """
