@@ -89,8 +89,14 @@ class phone_status_service(dbus.service.Object):
         bus_name = dbus.service.BusName("org.frank", bus=dbus.SystemBus()) # The dbus connection
         super().__init__(bus_name, "/")
         self._link_is_ready = False
+        self._ring_bell = False
 
     @dbus.service.signal('phone.status', signature='s')
     def emit(self, value):
         print("Emit was fired directly with param %s" % value)
-        pass
+
+    @dbus.service.signal('phone.status', signature='s')
+    def ring(self, value):
+        """params: value (config.RING_START, config.RING_STOP)
+            description: single to start/stop the ringer"""
+        print(f"Ring signal fired {value}")

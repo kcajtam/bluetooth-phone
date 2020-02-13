@@ -24,6 +24,7 @@ import subprocess
 
 import config
 import manager
+import dbus_custom_services
 
 class RotaryDial(Thread):
     """
@@ -66,34 +67,54 @@ class RotaryDial(Thread):
                 self.value = 0
 
 
+class RingerController(object):
+    def __init__(self, ringer):
+        """ Set up the listener on the DBus """
+        self.bus = dbus.SystemBus()
+        dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
+        self.loop = GLib.MainLoop()
+        self.ring_service_interface = dbus.Interface(self.bus.get_object('org.frank', '/'), "phone.status")
+        self.ring_service_interface.connect_to_signal('ring', self._control_ringer)
+
+    def _control_ringer(self, value):
+        if value == config.RING_START:
+            self.is_ringing = True
+        else:
+            self.is_ringing = False
+
+
 class Ringer(Thread):
     """
     Thread to run the ringer singals
     """
     def __init__(self, ringer_pin, sequence):
-        Thread.__init__(self)
+        Thread.__init__()
+        GPIO.setmode(GPIO.BCM)
         self.pin = ringer_pin
         GPIO.setup(self.pin, GPIO.OUT)
         # sue the PWM GPIO to control the ringer.
         self.ringer = GPIO.PWM(self.pin, config.RINGER_FREQUENCY)
-        self.seq = sequence*1000.0
+        self.seq = sequence
 
         self.is_ringing = False # Gettable/Settable flag to start/stop ringing
 
     def run(self):
-        ringing = True
+        ringing = False
+        print("Ringer started")
         while self.is_ringing:
-            for x in range(len(self.seq)):
-                if not self.is_ringing:
+            for x in range(self.seq.size):
+                if self.is_ringing: # IPC flag
                     if ringing:
                         self.ringer.stop()
+                        ringing = False
                     else:
+                        ringing = True
                         self.ringer.start(100)
                     time.sleep(self.seq[x])
                 else:
                     break
-
-
+        if not self.is_ringing:
+            print("Ringer off")
 
 class Telephone(object):
     """
@@ -124,7 +145,8 @@ class Telephone(object):
         self.phone_manager = manager.PhoneManager()
         self.bt_conn = self.phone_manager.bt_conn
 
-        self.rotary_dial = RotaryDial(num_pin, self.number_q)
+        self.rotary_dial = RotaryDial(num_pin, self.number_q)   # Dial
+        self.ringer = Ringer(config.RINGER_PIN, config.RINGER_PATTERN) # Bell
 
         # Load fast_dial numbers
         with open("phonebook.yaml", 'r') as stream:
@@ -165,6 +187,8 @@ class Telephone(object):
 
         # Start rotary dial thread
         self.rotary_dial.start()
+
+        self.ringer.start()
 
     def make_discoverable(self, pin_num):
         """
@@ -329,6 +353,8 @@ class Telephone(object):
 
 
 if __name__ == '__main__':
+
+
 
     #create and instance of the telephone
     t = Telephone(config.NS_PIN, config.HOERER_PIN, config.DISCOVERABLE_PIN, config.VOLUME_PIN_DICT)

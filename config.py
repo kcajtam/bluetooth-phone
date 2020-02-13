@@ -33,8 +33,8 @@ VOLUME_PIN_DICT = {'VOLUME_UP_PIN': 23,
 """ Phone hardware constants """
 # Switch bounce times for edge detection (units: ms)
 DIAL_BOUNCE_TIME = 90
-BUTTON_BOUNCE_TIME = 2000
-RECEIVER_BOUNCE_TIME = 1000
+BUTTON_BOUNCE_TIME = 200
+RECEIVER_BOUNCE_TIME = 100
 VOLUME_INCREMENT = 5
 
 
@@ -42,4 +42,6 @@ VOLUME_INCREMENT = 5
 # misc. constants
 READY = "READY"  # Flag indicating that modem has changed state t being ready for calls.
 ALREADY_ON = "ALREADYON"  # Flag indicating that there was a phone connected at startup
+RING_START ="RINGSTART"  # Ring the bell
+RING_STOP = "RINGSTOP"  # Signal to stop the bell ringing
 

@@ -11,6 +11,7 @@ import dbus_custom_services
 import bluetooth
 import config
 
+
 class PhoneManager(object):
 
     CHUNK = 1024
@@ -69,8 +70,10 @@ class PhoneManager(object):
     def _listen_for_calls(self, value):
         if value == config.READY:
             print("Handling phone ready signal.")
-        else:
+        elif value == config.ALREADY_ON:
             print("Modem was already connected and online")
+        else:
+            return None
 
         if self.bt_conn.has_modems:
             print("Create listener for calls")
@@ -97,12 +100,14 @@ class PhoneManager(object):
         if direction == 'incoming':
             print(F"Inbound call detected on {path}")
             self.active_call_path = path
+            self.status_service.ring(config.RING_START)
         else:
             print("Originating outbound call")
             self.active_call_path = None
 
     def answer_call(self):
         """ Answer the call on the modem path specified by self.active_call_path """
+        self.status_service.ring(config.RING_STOP)
         call = dbus.Interface(self.bus.get_object('org.ofono', self.active_call_path), 'org.ofono.VoiceCall')
         time.sleep(2)
         call.Answer()
@@ -116,6 +121,7 @@ class PhoneManager(object):
         """
         print("Call ended!")
         self.call_in_progress = False
+        self.status_service.ring(config.RING_STOP)
 
     def end_call(self):
         """
