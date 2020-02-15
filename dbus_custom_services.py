@@ -13,7 +13,7 @@ class AutoAcceptAgent(dbus.service.Object):
         super().__init__(bus, path)
 
 
-    def ask(self, prompt):
+    """ def ask(self, prompt):
         try:
             return input(prompt)
         except:
@@ -74,7 +74,7 @@ class AutoAcceptAgent(dbus.service.Object):
         auth = self.ask("Authorize? (yes/no): ")
         if (auth == "yes"):
             return
-        #raise pass #Rejected("Pairing rejected")
+        #raise pass #Rejected("Pairing rejected") """
 
     @dbus.service.method(AGENT_INTERFACE, in_signature="", out_signature="")
     def Cancel(self):
@@ -100,3 +100,10 @@ class phone_status_service(dbus.service.Object):
         """params: value (config.RING_START, config.RING_STOP)
             description: single to start/stop the ringer"""
         print(f"Ring signal fired {value}")
+     
+
+    @dbus.service.method('phone.status', in_signature='s', out_signature='s')
+    def send_to_ringer(self, value):
+        print(f"received request to control ringer {value}")
+        self.ring(value)
+        return "OK"
