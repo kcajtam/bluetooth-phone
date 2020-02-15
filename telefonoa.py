@@ -24,7 +24,7 @@ import subprocess
 
 import config
 import manager
-import dbus_custom_services
+import ringer
 
 class RotaryDial(Thread):
     """
@@ -67,63 +67,7 @@ class RotaryDial(Thread):
                 self.value = 0
 
 
-class Ringer(object):
-    """
-    Thread to run the ringer singals
-    """
-    def __init__(self, ringer_pin, sequence):
-        #Thread.__init__(self)
-        GPIO.setmode(GPIO.BCM)
-        self.pin = ringer_pin
-        GPIO.setup(self.pin, GPIO.OUT)
-        # sue the PWM GPIO to control the ringer.
-        self.ringer = GPIO.PWM(self.pin, config.RINGER_FREQUENCY)
-        self.seq = sequence
-        self.is_ringing = False # Gettable/Settable flag to start/stop ringing
 
-        self.bus = dbus.SystemBus()
-        self._set_up_loop()
-        self._setup_listeners()
-        
-
-    def _set_up_loop(self):
-        dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
-        self.loop = GLib.MainLoop()
-        self._thread = Thread(target=self.loop.run)
-        self._thread.start()
-
-    def _setup_listeners(self):
-        self.ring_service_interface = dbus.Interface(self.bus.get_object('org.frank', '/'), "phone.status")
-        self.ring_service_interface.connect_to_signal('ring', self._control_ringer)
-
-    def _control_ringer(self, value):
-        """ Handler set flag (self.is_ringer) that will stop the loop in the Ringer thread."""
-        print(f"Ringing Controller {value}")
-        if value == config.RING_START:
-            print("dbus ringer signal received")
-            self.is_ringing = True
-            self.start_ringer()
-        else:
-            print("dbus ringer stop signal received")
-            self.is_ringing = False
-
-    def start_ringer(self):
-        ringing = False
-        print("Ringer start")
-        if self.is_ringing:
-            for x in range(self.seq.size):
-                if self.is_ringing: # IPC flag
-                    if ringing:
-                        print("pulse off")
-                        self.ringer.stop()
-                        ringing = False
-                    else:
-                        ringing = True
-                        print("pulse on")
-                        self.ringer.start(100)
-                    time.sleep(self.seq[x])
-                else:
-                    break
 
 class Telephone(object):
     """
@@ -154,8 +98,10 @@ class Telephone(object):
         self.phone_manager = manager.PhoneManager()
         self.bt_conn = self.phone_manager.bt_conn
 
-        self.rotary_dial = RotaryDial(num_pin, self.number_q)   # Dial
-        self.ringer=Ringer(config.RINGER_PIN, config.RINGER_PATTERN)
+        """Instantiate the thread that monitors the dial"""
+        self.rotary_dial = RotaryDial(num_pin, self.number_q)
+        """ instantiate the ringermanager object which exposes the dbus api for the ringer control"""
+        self.ringer = ringer.RingerManager()
 
         # Load fast_dial numbers
         with open("phonebook.yaml", 'r') as stream:
@@ -197,7 +143,6 @@ class Telephone(object):
         # Start rotary dial thread
         self.rotary_dial.start()
 
-
     def make_discoverable(self, pin_num):
         """
             Set the RPi BT device to discoverable and pairable for 30 seconds. This is used only for pairing
@@ -218,9 +163,6 @@ class Telephone(object):
         self.phone_manager.mute_toggle()
         print(f"Toggle mute: Current status = {self.phone_manager.muted}")
 
-    def null_handler(self,value):
-        pass
-
     def receiver_changed(self, pin_num):
         """
         Event triggered when the receiver is hung of lifted.
@@ -235,13 +177,7 @@ class Telephone(object):
                 self.phone_manager.answer_call()
             else:
                 # else we're picking the receiver up to begin dialing
-                bus = dbus.SystemBus()
-                status_service = dbus.Interface(bus.get_object('org.frank', '/'), 'phone.status')
-                status_service.send_to_ringer(config.RING_START, reply_handler=self.null_handler,error_handler=self.null_handler)
-
                 self.start_file("/home/pi/bluetooth-phone/dial_tone.wav", loop=True)
-
-
         else:
             print("Receiver Down")
             if self.phone_manager.call_in_progress:
@@ -249,7 +185,6 @@ class Telephone(object):
                 self.phone_manager.end_call()
             self.receiver_down = True
             self.stop_file()  # kill thread that might be playing the dial tone.
-
 
     def start_file(self, filename, loop=False):
         """
@@ -380,6 +315,7 @@ if __name__ == '__main__':
         # enter the dialing handler loop
         t.dialing_handler()
     except KeyboardInterrupt:
+        print("stopped by keyboard")
         pass
     t.close()
 
