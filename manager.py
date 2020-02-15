@@ -104,8 +104,9 @@ class PhoneManager(object):
         if direction == 'incoming':
             print(F"Inbound call detected on {path}")
             self.active_call_path = path
-            self.status_service.send_to_ringer(config.RING_START, reply_handler=self.null_handler,
-                                               error_handler=self.null_handler)
+            self.status_service.ring(config.RING_START)
+            #self.status_service.send_to_ringer(config.RING_START, reply_handler=self.null_handler,
+            #                                   error_handler=self.null_handler)
         else:
             print("Originating outbound call")
             self.active_call_path = None
@@ -116,8 +117,9 @@ class PhoneManager(object):
         """
 
         """ First thing is to stop the ringer via the Dbus singalling."""
-        self.status_service.send_to_ringer(config.RING_STOP, reply_handler=self.null_handler,
-                                           error_handler=self.null_handler)
+        #self.status_service.send_to_ringer(config.RING_STOP, reply_handler=self.null_handler,
+        #                                   error_handler=self.null_handler)
+        self.status_service.ring(config.RING_STOP)
         call = dbus.Interface(self.bus.get_object('org.ofono', self.active_call_path), 'org.ofono.VoiceCall')
         time.sleep(2)
         call.Answer()
@@ -132,9 +134,9 @@ class PhoneManager(object):
         print("Call ended.")
         self.call_in_progress = False
         """Send the ringer_stop signal to the RingerManager to stop the ringing"""
-        self.status_service.send_to_ringer(config.RING_STOP, reply_handler=self.null_handler,
-                                           error_handler=self.null_handler)
-
+        #self.status_service.send_to_ringer(config.RING_STOP, reply_handler=self.null_handler,
+        #                                   error_handler=self.null_handler)
+        self.status_service.ring(config.RING_STOP)
     def end_call(self):
         """
         Method to finalize the current (all, actually) call
