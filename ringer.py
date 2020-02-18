@@ -19,6 +19,7 @@ class Ringer(Thread):
         GPIO.setup(self.pin, GPIO.OUT)
         # sue the PWM GPIO to control the ringer.
         self.ringer = GPIO.PWM(self.pin, config.RINGER_FREQUENCY)
+        self.ringer.start(0)
         self.seq = sequence
         self.is_ringing = False # Gettable/Settable flag to start/stop ringing
         self.finished = False
@@ -35,13 +36,17 @@ class Ringer(Thread):
                 for x in range(self.seq.size):
                     if ringing:
                         print("pulse off")
-                        self.ringer.stop()
+                        self.ringer.ChangeDutyCycle(0)
                         ringing = False
                     else:
                         ringing = True
                         print("pulse on")
                         if self.is_ringing:
-                            self.ringer.start(100)
+                            """
+                                Note there is a bug in the RPi.GPIO module that means you can not repeatedly turn the 
+                                ringer on an off.Changing teh duty cycle is the workaround
+                             """
+                            self.ringer.ChangeDutyCycle(50)
                     if self.is_ringing:
                         time.sleep(self.seq[x])
             else:

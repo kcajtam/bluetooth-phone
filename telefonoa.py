@@ -163,6 +163,10 @@ class Telephone(object):
         self.phone_manager.mute_toggle()
         print(f"Toggle mute: Current status = {self.phone_manager.muted}")
 
+    def nullhandler(self, value):
+        """Used by the phone status dbus service. When passed in twice to the method call, this makes the method calls asynchronous """
+        pass
+
     def receiver_changed(self, pin_num):
         """
         Event triggered when the receiver is hung of lifted.
@@ -177,6 +181,11 @@ class Telephone(object):
                 self.phone_manager.answer_call()
             else:
                 # else we're picking the receiver up to begin dialing
+                """For debugging the ringer."""
+                print("try to ring")
+                bus = dbus.SystemBus()
+                ringer_service = dbus.Interface(bus.get_object('org.frank', '/'), 'phone.status')
+                ringer_service.send_to_ringer(config.RING_START, reply_handler=self.nullhandler, error_handler=self.nullhandler)
                 self.start_file("/home/pi/bluetooth-phone/dial_tone.wav", loop=True)
         else:
             print("Receiver Down")

@@ -8,7 +8,7 @@ Configuration file
 # Ringer frequency in hertz
 RINGER_FREQUENCY = 25
 # Ringer pattern in seconds
-RINGER_PATTERN = array([0.4, 0.2, 0.4, 2.0])   # time on,off,on,off
+RINGER_PATTERN = array([0.4, 0.2, 0.4, 2])   # time on,off,on,off
 # ringer gpio pin on RPi3B+
 RINGER_PIN = 12
 # Receiver / handset GPIO pin on RPi3B+
