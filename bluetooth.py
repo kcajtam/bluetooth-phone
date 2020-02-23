@@ -74,6 +74,7 @@ class connection(object):
 
     def _listen_for_modem_status_change(self):
         """" Listener for status property change """
+        print("Start Listening for modems")
         if self.has_modems:
             self.modem_object.connect_to_signal('PropertyChanged', self._modem_status_change)
 
@@ -86,6 +87,7 @@ class connection(object):
             @name: string : Name of property change that trigger this handler
             @value: dbus datatype : The new value that property takes
         """
+        print("Modem add detected")
         if name == 'Online':
             if value == dbus.Boolean(True, variant_level=1):
                 print("Previously paired mobile phone has just connected.")

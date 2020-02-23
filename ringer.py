@@ -17,9 +17,13 @@ class Ringer(Thread):
         GPIO.setmode(GPIO.BCM)
         self.pin = ringer_pin
         GPIO.setup(self.pin, GPIO.OUT)
-        # sue the PWM GPIO to control the ringer.
+        # set the PWM GPIO to control the ringer.
         self.ringer = GPIO.PWM(self.pin, config.RINGER_FREQUENCY)
         self.ringer.start(0)
+        # Configure the enable pin
+        GPIO.setup(config.RINGER_ENABLE_PIN, GPIO.OUT)
+        GPIO.output(config.RINGER_ENABLE_PIN,0)
+        self.is_enabled = False
         self.seq = sequence
         self.is_ringing = False # Gettable/Settable flag to start/stop ringing
         self.finished = False
@@ -78,7 +82,12 @@ class RingerManager(object):
         if value == config.RING_START:
             print("dbus ring start signal received")
             self._ringer.is_ringing = True
+            print("Apply power to ringer")
+            GPIO.output(config.RINGER_ENABLE_PIN,1)
         else:
             print("dbus ringer stop signal received")
             self._ringer.is_ringing = False
+            GPIO.output(config.RINGER_ENABLE_PIN,0)
+            print("Remove power from ringer")
+            
 

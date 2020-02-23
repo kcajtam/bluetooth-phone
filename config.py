@@ -11,6 +11,8 @@ RINGER_FREQUENCY = 25
 RINGER_PATTERN = array([0.4, 0.2, 0.4, 2])   # time on,off,on,off
 # ringer gpio pin on RPi3B+
 RINGER_PIN = 12
+# Ringer on pin - adds/removes power from bell.
+RINGER_ENABLE_PIN = 18
 # Receiver / handset GPIO pin on RPi3B+
 HOERER_PIN = 13
 
