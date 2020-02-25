@@ -12,8 +12,7 @@ class AutoAcceptAgent(dbus.service.Object):
         self.exit_on_release = True
         super().__init__(bus, path)
 
-
-    """ def ask(self, prompt):
+    def ask(self, prompt):
         try:
             return input(prompt)
         except:
@@ -74,7 +73,7 @@ class AutoAcceptAgent(dbus.service.Object):
         auth = self.ask("Authorize? (yes/no): ")
         if (auth == "yes"):
             return
-        #raise pass #Rejected("Pairing rejected") """
+        #raise pass #Rejected("Pairing rejected")
 
     @dbus.service.method(AGENT_INTERFACE, in_signature="", out_signature="")
     def Cancel(self):

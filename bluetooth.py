@@ -116,7 +116,7 @@ class connection(object):
 
         # automatically trust it.
         props = dbus.Interface(self.bus.get_object("org.bluez", path), "org.freedesktop.DBus.Properties")
-        props.Set("org.bluez.Device1", "Trusted", True)
+        props.Set("org.bluez.Device1", "Trusted", dbus.Boolean(True, variant_level=1))
 
         """Even though the modem is added and online, we need to setup listeners for when it goes offline"""
         self._listen_for_modem_status_change()
