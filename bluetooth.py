@@ -46,12 +46,15 @@ class connection(object):
         self._listen_for_modems()
         print("Modem at start up %s" % self.modem_properties.__str__())
 
-    def get_modem_info(self):
+    def get_modem_info(self, path=None):
+        """Get modem information from ofono.Manager.
+            @path: string : The path to the current modem. If None then defaults to the first modem returned by the manager
+        """
         if self.manager is None:
             self.manager = dbus.Interface(self.bus.get_object('org.ofono', '/'), 'org.ofono.Manager')
-        self.modem_object, self.modem_properties = self.get_modem_and_properties()
+        self.modem_object, self.modem_properties = self.get_modem_and_properties(path)
 
-    def get_modem_and_properties(self):
+    def get_modem_and_properties(self, path=None):
         """
         Flag indicating that modem exists. This is the case when at least one bt device has paired even if it is
         not currently connected
@@ -60,13 +63,21 @@ class connection(object):
         """
         modem = None
         try:
-            modem = self.manager.GetModems()
+            all_modems = self.manager.GetModems()
         except:
             pass
-        if modem is not None and len(modem) > 0:
+        try:
+            if not path is None:
+                modem = all_modems[path]
+            else:
+                modem = all_modems[0]
+        except:
+            modem = all_modems[0]
+
+        if modem is not None:
             self.has_modems = True
-            self.is_online = self._modem_is_online(modem[0][1])
-            return self.bus.get_object('org.ofono', modem[0][0]), modem[0][1]
+            self.is_online = self._modem_is_online(modem[1])
+            return self.bus.get_object('org.ofono', modem[0]), modem[1]
         else:
             self.has_modems = False
             self.is_online = False
@@ -87,8 +98,9 @@ class connection(object):
             @name: string : Name of property change that trigger this handler
             @value: dbus datatype : The new value that property takes
         """
-        print("Modem add detected")
+        print("modem status change")
         if name == 'Online':
+            print("Modem add detected")
             if value == dbus.Boolean(True, variant_level=1):
                 print("Previously paired mobile phone has just connected.")
                 self._refresh_pulseaudio_cards()
@@ -110,7 +122,8 @@ class connection(object):
 
     def _modemAdded(self, path, properties):
         """ Handler for a modem being added. When a modem is added it is automatically online."""
-        self.get_modem_info()
+        print(f"Modem path {path}")
+        self.get_modem_info(path)
         print("A modem is been added and has connected {:s} ".format(self.modem_properties[dbus.String('Name')]))
         self.has_modems = True
 

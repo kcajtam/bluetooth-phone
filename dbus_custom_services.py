@@ -85,7 +85,7 @@ class phone_status_service(dbus.service.Object):
     bluetooth conenction has been refreshed in pulse audio etc.
     """
     def __init__(self):
-        bus_name = dbus.service.BusName("org.frank", bus=dbus.SystemBus()) # The dbus connection
+        bus_name = dbus.service.BusName("org.frank", bus=dbus.SystemBus())  # The dbus connection
         super().__init__(bus_name, "/")
         self._link_is_ready = False
         self._ring_bell = False
