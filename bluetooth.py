@@ -136,8 +136,7 @@ class connection(object):
         Set the RPi BT device to discoverable and pairable for 30 seconds. This is used only for pairing
         device (e.g. a mobile phone) that has not previously been paired.
         """
-        print("Placing the RPi into discoverable mode and turn pairing on")
-        print(f"Discoverable for {duration} seconds only")
+
 
         self.bt_device = dbus.Interface(self.bus.get_object("org.bluez", "/org/bluez/hci0"),
                                         "org.freedesktop.DBus.Properties")
@@ -148,8 +147,9 @@ class connection(object):
             Agents manager the bt pairing process. Registering the NoInputNoOutput agent means now authentication from 
             the RPi is required to pair with it.
             """
+            print("Placing the RPi into discoverable mode and turn pairing on")
+            print(f"Discoverable for {duration} seconds only")
             bt_agent_manager = dbus.Interface(self.bus.get_object("org.bluez", "/org/bluez"), "org.bluez.AgentManager1")
-
             if self.pairing_agent is None:
                 print("registering auto accept pairing agent")
                 path = "/RPi/Agent"
