@@ -11,6 +11,7 @@ class AutoAcceptAgent(dbus.service.Object):
     def __init__(self, bus, path):
         self.exit_on_release = True
         super().__init__(bus, path)
+        self.bus = dbus.SystemBus()
 
     def ask(self, prompt):
         try:
@@ -20,7 +21,7 @@ class AutoAcceptAgent(dbus.service.Object):
 
     def set_trusted(self, path):
         props = dbus.Interface(self.bus.get_object("org.bluez", path), "org.freedesktop.DBus.Properties")
-        props.Set("org.bluez.Device1", "Trusted", True)
+        props.Set("org.bluez.Device1", "Trusted", dbus.Boolean(True, variant_level=1))
 
     def dev_connect(self, path):
         dev = dbus.Interface(self.bus.get_object("org.bluez", path), "org.bluez.Device1")
@@ -32,13 +33,14 @@ class AutoAcceptAgent(dbus.service.Object):
     @dbus.service.method(AGENT_INTERFACE, in_signature="os", out_signature="")
     def AuthorizeService(self, device, uuid):
         print("AuthorizeService (%s, %s)" % (device, uuid))
+        self.set_trusted(device)
         return
 
     @dbus.service.method(AGENT_INTERFACE,  in_signature="o", out_signature="s")
     def RequestPinCode(self, device):
         print("RequestPinCode (%s)" % (device))
         self.set_trusted(device)
-        return self.ask("Enter PIN Code: ")
+        return "1234"  #conf.PINCODE
 
     @dbus.service.method(AGENT_INTERFACE, in_signature="o", out_signature="u")
     def RequestPasskey(self, device):
@@ -59,21 +61,24 @@ class AutoAcceptAgent(dbus.service.Object):
 
     @dbus.service.method(AGENT_INTERFACE, in_signature="ou", out_signature="")
     def RequestConfirmation(self, device, passkey):
-        print("RequestConfirmation (%s, %06d)" % (device, passkey))
-        confirm = self.ask("Confirm passkey (yes/no): ")
-        if confirm == "yes":
-            self.set_trusted(device)
-            return
-        #raise pass
-            #Rejected("Passkey doesn't match")
+        #print("RequestConfirmation (%s, %06d)" % (device, passkey))
+        #confirm = self.ask("Confirm passkey (yes/no): ")
+        #if confirm == "yes":
+        #    self.set_trusted(device)
+        #    return
+        #print("Passkey doesn't match")
+        return
 
     @dbus.service.method(AGENT_INTERFACE, in_signature="o", out_signature="")
     def RequestAuthorization(self, device):
         print("RequestAuthorization (%s)" % (device))
-        auth = self.ask("Authorize? (yes/no): ")
-        if (auth == "yes"):
-            return
-        #raise pass #Rejected("Pairing rejected")
+        #auth = self.ask("Authorize? (yes/no): ")
+        #if (auth == "yes"):
+        #    return
+        #else: 
+        #    print("Pairing rejected")
+        return
+
 
     @dbus.service.method(AGENT_INTERFACE, in_signature="", out_signature="")
     def Cancel(self):

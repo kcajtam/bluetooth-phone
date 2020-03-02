@@ -3,6 +3,10 @@ from numpy import array
 Configuration file
 """
 
+# Default pairing pin code 
+PINCODE = "1234"
+DISCOVERABLE_TIMEOUT = 20
+
 """ GPIO pin configurations """
 
 # Ringer frequency in hertz

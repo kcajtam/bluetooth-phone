@@ -149,7 +149,7 @@ class Telephone(object):
             device (e.g. a mobile phone) that has not previously been paired.
             param: pin_num - the number of the GPIO pin that triggered the event - not used.
         """
-        self.bt_conn.make_discoverable()
+        self.bt_conn.make_discoverable(config.DISCOVERABLE_TIMEOUT)
 
     def volume_up(self, pin):
         self.phone_manager.volume_up(config.VOLUME_INCREMENT)

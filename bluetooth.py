@@ -23,6 +23,7 @@ class connection(object):
         self.discoverable_status = 0    # Takes value 0 or 1 (not a boolean)
         self.has_modems = False         # Flag indicating if at least one modem ( BT device has been paired)
         self.is_online = False
+        self.all_modems = {}            # dictionary 
         self.modem_object = None        # The modem path object
         self.modem_properties = None    # properties of the modem. Array[dbus.String]
         self.bt_device = None           # RPi bluetooth adapter (Hardware)
@@ -34,6 +35,7 @@ class connection(object):
             connected and ready to start using.
         """
         self.status_service = _status_service
+        self._register_pairing_agent()
 
         self.get_modem_info()
         """ 
@@ -52,7 +54,8 @@ class connection(object):
         """
         if self.manager is None:
             self.manager = dbus.Interface(self.bus.get_object('org.ofono', '/'), 'org.ofono.Manager')
-        self.modem_object, self.modem_properties = self.get_modem_and_properties(path)
+        if not path is None:
+            self.modem_object, self.modem_properties = self.get_modem_and_properties(path)
 
     def get_modem_and_properties(self, path=None):
         """
@@ -128,8 +131,9 @@ class connection(object):
         self.has_modems = True
 
         # automatically trust it.
-        props = dbus.Interface(self.bus.get_object("org.bluez", path), "org.freedesktop.DBus.Properties")
-        props.Set("org.bluez.Device1", "Trusted", dbus.Boolean(True, variant_level=1))
+        # Moved this to the autoaccept agent.
+        #props = dbus.Interface(self.bus.get_object("org.bluez", path), "org.freedesktop.DBus.Properties")
+        #props.Set("org.bluez.Device1", "Trusted", dbus.Boolean(True, variant_level=1))
 
         """Even though the modem is added and online, we need to setup listeners for when it goes offline"""
         self._listen_for_modem_status_change()
@@ -149,8 +153,6 @@ class connection(object):
         Set the RPi BT device to discoverable and pairable for 30 seconds. This is used only for pairing
         device (e.g. a mobile phone) that has not previously been paired.
         """
-
-
         self.bt_device = dbus.Interface(self.bus.get_object("org.bluez", "/org/bluez/hci0"),
                                         "org.freedesktop.DBus.Properties")
         # Check if the device is already in discoverable mode and if not then set a short discoverable period
@@ -162,15 +164,30 @@ class connection(object):
             """
             print("Placing the RPi into discoverable mode and turn pairing on")
             print(f"Discoverable for {duration} seconds only")
-            bt_agent_manager = dbus.Interface(self.bus.get_object("org.bluez", "/org/bluez"), "org.bluez.AgentManager1")
-            if self.pairing_agent is None:
-                print("registering auto accept pairing agent")
-                path = "/RPi/Agent"
-                self.pairing_agent = dbus_custom_services.AutoAcceptAgent(self.bus, path)
-                # Register application's agent for headless operation
-                bt_agent_manager.RegisterAgent(path, "NoInputNoOutput")
-                bt_agent_manager.RequestDefaultAgent(path)
+
+
             # Setup discoverability
             self.bt_device.Set("org.bluez.Adapter1", "DiscoverableTimeout", dbus.UInt32(duration))
             self.bt_device.Set("org.bluez.Adapter1", "Discoverable", True)
+            self.bt_device.Set("org.bluez.Adapter1", "PairableTimeout", dbus.UInt32(duration))
             self.bt_device.Set("org.bluez.Adapter1", "Pairable", True)
+
+    def _register_pairing_agent(self):
+        """Registered bluetooth pairing agent that will autoaccept pairing requests"""
+        if self.pairing_agent is None:
+            print("registering auto accept pairing agent")
+            path = "/RPi/Agent"
+            self.pairing_agent = dbus_custom_services.AutoAcceptAgent(self.bus, path)
+            # Register application's agent for headless operation
+            bt_agent_manager = dbus.Interface(self.bus.get_object("org.bluez", "/org/bluez"), "org.bluez.AgentManager1")
+            bt_agent_manager.RegisterAgent(path, "NoInputNoOutput")
+            bt_agent_manager.RequestDefaultAgent(path)
+
+    def _listen_to_Rpi_hci0(self):
+        """ Set up listener for HCI0 status changes """
+        _hci0 = dbus.Interface(self.bus.get_object("org.bluez","/org/bluez/hci0"),"org.bluez.Adapter1")
+        _hci0.connect_to_signal("PropertyChanged",_hci0_property_handler)
+
+    def _hci0_property_handler(self,prop, props, prop_vals):
+        pass
+
