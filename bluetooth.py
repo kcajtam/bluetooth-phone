@@ -36,28 +36,19 @@ class connection(object):
         """
         self.status_service = _status_service
         self._register_pairing_agent()
-
-        self.get_modem_info()
+        self.manager = dbus.Interface(self.bus.get_object('org.ofono', '/'), 'org.ofono.Manager')
         """ 
         Get the modem ( BT devices and connection status. Note that even if a modem is present it still may 
         not be online (was previously paired but hasn't connected this session)
         """
+        self.get_modem_and_prop_objects()
         if self.has_modems:
             self._listen_for_modem_status_change()
         """Set up modem listener even if a modem ( ie. phone) is connected in case another phone wants to take over"""
         self._listen_for_modems()
         print("Modem at start up %s" % self.modem_properties.__str__())
 
-    def get_modem_info(self, path=None):
-        """Get modem information from ofono.Manager.
-            @path: string : The path to the current modem. If None then defaults to the first modem returned by the manager
-        """
-        if self.manager is None:
-            self.manager = dbus.Interface(self.bus.get_object('org.ofono', '/'), 'org.ofono.Manager')
-        if not path is None:
-            self.modem_object, self.modem_properties = self.get_modem_and_properties(path)
-
-    def get_modem_and_properties(self, path=None):
+    def get_modem_and_prop_objects(self, path=None):
         """
         Flag indicating that modem exists. This is the case when at least one bt device has paired even if it is
         not currently connected
@@ -65,6 +56,8 @@ class connection(object):
         :side effects - Sets flags has_modem and is_online.
         """
         modem = None
+        all_modems = []
+
         try:
             all_modems = self.manager.GetModems()
         except:
@@ -72,19 +65,25 @@ class connection(object):
         try:
             if not path is None:
                 modem = all_modems[path]
-            else:
-                modem = all_modems[0]
+            elif len(all_modems) > 0:
+                for m in all_modems:
+                    self.bus.get_object('org.ofono', m[0]).connect_to_signal('PropertyChanged', self._modem_status_change)
+                    # Get the first modem that is online
+                    if self._modem_is_online(props=m[1]) == dbus.Boolean(True, variant_level=1):
+                        modem = m
         except:
-            modem = all_modems[0]
+            pass
 
         if modem is not None:
             self.has_modems = True
-            self.is_online = self._modem_is_online(modem[1])
-            return self.bus.get_object('org.ofono', modem[0]), modem[1]
+            self.is_online = self._modem_is_online(props=modem[1])
+            self.modem_object = self.bus.get_object('org.ofono', modem[0])
+            self.modem_properties = modem[1]
         else:
             self.has_modems = False
             self.is_online = False
-            return None, None
+            self.modem_object = None
+            self.modem_properties = None
 
     def _listen_for_modem_status_change(self):
         """" Listener for status property change """
@@ -101,7 +100,7 @@ class connection(object):
             @name: string : Name of property change that trigger this handler
             @value: dbus datatype : The new value that property takes
         """
-        print("modem status change")
+        print(f"modem property {name} changed to {value.__str__()}")
         if name == 'Online':
             print("Modem add detected")
             if value == dbus.Boolean(True, variant_level=1):
@@ -112,7 +111,7 @@ class connection(object):
             else:
                 print("phone has disconnected from RPi")
 
-    def _modem_is_online(self, props):
+    def _modem_is_online(self, *, props):
         """ Flag indicating that modem[0][0] is online """
         if props is not None:
             return props[dbus.String('Online')] == 1
@@ -126,17 +125,11 @@ class connection(object):
     def _modemAdded(self, path, properties):
         """ Handler for a modem being added. When a modem is added it is automatically online."""
         print(f"Modem path {path}")
-        self.get_modem_info(path)
+        self.get_modem_and_prop_objects(path)
         print("A modem is been added and has connected {:s} ".format(self.modem_properties[dbus.String('Name')]))
-        self.has_modems = True
 
-        # automatically trust it.
-        # Moved this to the autoaccept agent.
-        #props = dbus.Interface(self.bus.get_object("org.bluez", path), "org.freedesktop.DBus.Properties")
-        #props.Set("org.bluez.Device1", "Trusted", dbus.Boolean(True, variant_level=1))
-
-        """Even though the modem is added and online, we need to setup listeners for when it goes offline"""
-        self._listen_for_modem_status_change()
+        # """Even though the modem is added and online, we need to setup listeners for when it goes offline"""
+        # self._listen_for_modem_status_change()
         self._refresh_pulseaudio_cards()
 
     def _refresh_pulseaudio_cards(self):
@@ -185,7 +178,7 @@ class connection(object):
 
     def _listen_to_Rpi_hci0(self):
         """ Set up listener for HCI0 status changes """
-        _hci0 = dbus.Interface(self.bus.get_object("org.bluez","/org/bluez/hci0"),"org.bluez.Adapter1")
+        _hci0 = dbus.Interface(self.bus.get_object("org.bluez","/org/bluez/hci0"), "org.bluez.Adapter1")
         _hci0.connect_to_signal("PropertyChanged",_hci0_property_handler)
 
     def _hci0_property_handler(self,prop, props, prop_vals):
