@@ -79,7 +79,7 @@ class PhoneManager(object):
         if self.bt_conn.has_modems:
             print("Create listener for calls")
             self.voice_call_manager = dbus.Interface(self.bt_conn.modem_object, 'org.ofono.VoiceCallManager')
-            print("Device name = {:s} ".format(self.bt_conn.modem_properties[dbus.String('Name')]))
+            print("Device name = {:s} ".format(self.bt_conn.modem_name))
             self.bt_conn.modem_object.connect_to_signal("CallAdded", self.set_call_in_progress,
                                                         dbus_interface='org.ofono.VoiceCallManager')
             self.bt_conn.modem_object.connect_to_signal("CallRemoved", self.set_call_ended,

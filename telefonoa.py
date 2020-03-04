@@ -269,9 +269,9 @@ class Telephone(object):
             if not self.receiver_down:  # Handling of the dialing when the receiver is lifted
                 try:
                     c = self.number_q.get(timeout=5)
-                    # turn off dial tone as soon as a number is dialed.
-                    if not number == '' and self.playing_audio:
-                        self.stop_file()
+                    # # turn off dial tone as soon as a number is dialed.
+                    # if not number == '' and self.playing_audio:
+                    #     self.stop_file()
                     number += str(c)
                 except Queue.Empty:
                     if number is not '':
