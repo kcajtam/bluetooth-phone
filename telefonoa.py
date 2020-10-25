@@ -6,6 +6,7 @@
 import RPi.GPIO as GPIO
 import datetime
 import dbus
+import dbus.service
 import dbus.mainloop.glib
 import wave
 import alsaaudio
@@ -18,8 +19,12 @@ from threading import Event
 import queue as Queue
 import numpy as np
 import struct
-from subprocess import call
 
+import subprocess
+
+import config
+import manager
+import ringer
 
 class RotaryDial(Thread):
     """
@@ -29,16 +34,21 @@ class RotaryDial(Thread):
     def __init__(self, ns_pin, number_queue):
         Thread.__init__(self)
         self.pin = ns_pin
+        """ 
+            The number_queue is Queue.Queue instance passed in from another thread. 
+            This appears to facilitate interprocess communications
+        """
         self.number_q = number_queue
         GPIO.setup(self.pin, GPIO.IN, pull_up_down=GPIO.PUD_UP)
         self.value = 0
         self.pulse_threshold = 0.2
+        # self.pulse_threshold = 0.2
         self.finish = False
-        GPIO.add_event_detect(ns_pin, GPIO.FALLING, callback=self.__increment, bouncetime=90)
+        GPIO.add_event_detect(ns_pin, GPIO.FALLING, callback=self.__increment, bouncetime=config.DIAL_BOUNCE_TIME)
 
     def __increment(self, pin_num):
         """
-        Increment function trigered each time a falling pulse is detected.
+        Increment function trigerred each time a falling pulse is detected.
         :param pin_num: GPIO pin triggering the event (Can only be self.ns_pin here)
         """
         self.value += 1
@@ -57,135 +67,6 @@ class RotaryDial(Thread):
                 self.value = 0
 
 
-class PhoneManager(object):
-    CHUNK = 1024
-
-    def __init__(self):
-        """
-        The PhoneManager class manages the calls and the communication with the ofono service.
-        """
-        dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
-        bus = dbus.SystemBus()
-        manager = dbus.Interface(bus.get_object('org.ofono', '/'), 'org.ofono.Manager')
-        modems = manager.GetModems()
-
-        # Take the first modem (there should be actually only one in our case)
-        modem = modems[0][0]
-        print(modem)
-        self.org_ofono_obj = bus.get_object('org.ofono', modem)
-        self.voice_call_manager = dbus.Interface(self.org_ofono_obj, 'org.ofono.VoiceCallManager')
-
-        self.call_in_progress = False
-        self._setup_dbus_loop()
-        print("Initialized")
-
-    def _setup_dbus_loop(self):
-        """
-        Sets up the D-Bus signals.
-        """
-        dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
-        self.loop = GLib.MainLoop()
-        self._thread = Thread(target=self.loop.run)
-        self._thread.start()
-
-        self.org_ofono_obj.connect_to_signal("CallAdded", self.set_call_in_progress,
-                                             dbus_interface='org.ofono.VoiceCallManager')
-
-        self.org_ofono_obj.connect_to_signal("CallRemoved", self.set_call_ended,
-                                             dbus_interface='org.ofono.VoiceCallManager')
-
-    def set_call_in_progress(self, object, properties):
-        """
-        Event triggered when a call is initiated.
-        :param object: The address of the call object from ofono
-        :param properties: Properties of the call
-        :return:
-        """
-        print("Call in progress!")
-        self.call_in_progress = True
-
-    def set_call_ended(self, object):
-        """
-        Event triggered when a call is ended
-        :param object: The address of the call object from ofono (just as reference, cannot be fetched anymore)
-        :return:
-        """
-        print("Call ended!")
-        self.call_in_progress = False
-
-    def end_call(self):
-        """
-        Method to finalize the current (all, actually) call
-        """
-        self.voice_call_manager.HangupAll()
-
-    def call(self, number, hide_id='default'):
-        """
-        Method to place call. It handles incorrectly dialed numbers thanks to ofono exceptions
-        """
-        try:
-            self.voice_call_manager.Dial(str(number), hide_id)
-        except dbus.exceptions.DBusException as e:
-            name = e.get_dbus_name()
-            if name == 'org.freedesktop.DBus.Error.UnknownMethod':
-                print("Ofono not running")
-                self.start_file("/home/pi/telefonoa/not_connected.wav")
-            elif name == 'org.ofono.Error.InvalidFormat':
-                print("Invalid dialed number format!")
-                self.start_file("/home/pi/telefonoa/format_incorrect.wav")
-            else:
-                print(name)
-
-    def start_file(self, filename, loop=False):
-        """
-        Start a thread reproducing an audio file
-        :param filename: The name of the file to play
-        :param loop: If the file should be played as a loop (like in the case of the dial tone)
-        """
-        self._thread = Thread(target=self.__play_file, args=[filename, loop])
-        self._thread.start()
-        self.playing_audio = True
-
-    def __play_file(self, filename, loop):
-        """
-        Private function handling the wav file replay
-        :param filename: The name of the file to play
-        :param loop: If the file should be played as a loop (like in the case of the dial tone)
-        """
-        self.stop_audio = False
-        if not loop:
-            # open a wav format music
-            f = wave.open(filename, "rb")
-            # open stream
-            stream = alsaaudio.PCM(type=alsaaudio.PCM_PLAYBACK,
-                                   mode=alsaaudio.PCM_NORMAL)
-            stream.setchannels(f.getnchannels())
-            stream.setrate(f.getframerate())
-            # read data
-            data = f.readframes(self.CHUNK)
-
-            # play stream
-            while data and not self.stop_audio:
-                stream.write(data)
-                data = f.readframes(self.CHUNK)
-        else:
-            # open a wav format music
-            f = wave.open(filename, "rb")
-            # open stream
-            stream = alsaaudio.PCM(type=alsaaudio.PCM_PLAYBACK,
-                                   mode=alsaaudio.PCM_NORMAL)
-            stream.setchannels(f.getnchannels())
-            stream.setrate(f.getframerate())
-            # read data
-            data = f.readframes(self.CHUNK)
-
-            # play stream
-            while loop and not self.stop_audio:
-                f.rewind()
-                data = f.readframes(self.CHUNK)
-                while data and not self.stop_audio:
-                    stream.write(data)
-                    data = f.readframes(self.CHUNK)
 
 
 class Telephone(object):
@@ -194,15 +75,33 @@ class Telephone(object):
     """
     CHUNK = 1024
 
-    def __init__(self, num_pin, receiver_pin):
+    def __init__(self, num_pin, receiver_pin, discoverable_pin=None, volume_pin_dict=None):
         GPIO.setmode(GPIO.BCM)
         self.receiver_pin = receiver_pin
         self.number_q = Queue.Queue()
-        self.phone_manager = PhoneManager()
-        self.rotary_dial = RotaryDial(num_pin, self.number_q)
+
+        self.discoverable_pin = discoverable_pin  # white button to trigger discovery and pairing.
+        self.discoverable = False
+        self.has_volume_controller = False
         self.stop_audio = False
         self.playing_audio = False
         self.finish = False
+
+        if volume_pin_dict is not None:
+            self.has_volume_controller = True
+            self.volume_up_pin = volume_pin_dict['VOLUME_UP_PIN']
+            self.volume_down_pin = volume_pin_dict['VOLUME_DOWN_PIN']
+            self.volume_mute_pin = volume_pin_dict['VOLUME_MUTE_PIN']
+        else:
+            self.has_volume_controller = False
+
+        self.phone_manager = manager.PhoneManager()
+        self.bt_conn = self.phone_manager.bt_conn
+
+        """Instantiate the thread that monitors the dial"""
+        self.rotary_dial = RotaryDial(num_pin, self.number_q)
+        """ instantiate the ringermanager object which exposes the dbus api for the ringer control"""
+        self.ringer = ringer.RingerManager()
 
         # Load fast_dial numbers
         with open("phonebook.yaml", 'r') as stream:
@@ -210,35 +109,94 @@ class Telephone(object):
 
         print(self.phonebook)
 
+        # Discoverability and volume control may not be available of phone model used. If they are then set up listeners
+        if discoverable_pin is not None:
+            # Set up the button to make it discoverable by preiously unpaired BT device.
+            print("Discoverable button available")
+            GPIO.setup(self.discoverable_pin, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
+            GPIO.add_event_detect(self.discoverable_pin, GPIO.RISING, callback=self.make_discoverable, bouncetime=config.BUTTON_BOUNCE_TIME)
+
+        if self.has_volume_controller:
+            # Set volume up pin
+            print("Set up volume controls")
+            GPIO.setup(self.volume_up_pin, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
+            GPIO.add_event_detect(self.volume_up_pin, GPIO.RISING, callback=self.volume_up, bouncetime=config.BUTTON_BOUNCE_TIME)
+            # Set volume down pin
+            GPIO.setup(self.volume_down_pin, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
+            GPIO.add_event_detect(self.volume_down_pin, GPIO.RISING, callback=self.volume_down, bouncetime=config.BUTTON_BOUNCE_TIME)
+            # set up mute toggling function
+            GPIO.setup(self.volume_mute_pin, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
+            GPIO.add_event_detect(self.volume_mute_pin, GPIO.RISING, callback=self.volume_mute_toggle, bouncetime=config.BUTTON_BOUNCE_TIME)
+        else:
+            print("No volume controls available")
+
         # Receiver relevant functions
         GPIO.setup(self.receiver_pin, GPIO.IN, pull_up_down=GPIO.PUD_UP)
         if GPIO.input(self.receiver_pin) is GPIO.HIGH:
             self.receiver_down = False
         else:
             self.receiver_down = True
-        self.receiver_changed(self.receiver_pin)
-        GPIO.add_event_detect(self.receiver_pin, GPIO.BOTH, callback=self.receiver_changed, bouncetime=10)
+        # self.receiver_changed(self.receiver_pin)
+        print("Initial receiver status = down ? {0}".format(self.receiver_down))
+        GPIO.add_event_detect(self.receiver_pin, GPIO.BOTH, callback=self.receiver_changed, bouncetime=config.RECEIVER_BOUNCE_TIME)
 
-        # Start all threads
+        # Start rotary dial thread
         self.rotary_dial.start()
 
-        # Anounce ready
-        self.start_file("/home/pi/telefonoa/ready.wav")
+    def make_discoverable(self, pin_num):
+        """
+            Set the RPi BT device to discoverable and pairable for 30 seconds. This is used only for pairing
+            device (e.g. a mobile phone) that has not previously been paired.
+            param: pin_num - the number of the GPIO pin that triggered the event - not used.
+        """
+        self.bt_conn.make_discoverable(config.DISCOVERABLE_TIMEOUT)
+
+    def volume_up(self, pin):
+        self.phone_manager.volume_up(config.VOLUME_INCREMENT)
+        print(f"Volume Up: Mic volume = {self.phone_manager.mic_volume}")
+
+    def volume_down(self, pin):
+        self.phone_manager.volume_down(config.VOLUME_INCREMENT)
+        print(f"Volumne Down: Mic volume = {self.phone_manager.mic_volume}")
+
+    def volume_mute_toggle(self, pin):
+        self.phone_manager.mute_toggle()
+        print(f"Toggle mute: Current status = {self.phone_manager.muted}")
+
+    def nullhandler(self, value):
+        """
+            Used by the phone status dbus service. When passed in twice to the method call,
+            this makes the method calls asynchronous
+        """
+        pass
 
     def receiver_changed(self, pin_num):
         """
         Event triggered when the receiver is hung of lifted.
         :param pin_num: GPIO pin triggering the event (Can only be self.receiver_pin here)
-        :return:
+        :return: None
         """
-        if self.receiver_down:
+        print("Receiver status changed..")
+        if GPIO.input(pin_num) is GPIO.HIGH:
+            print("Receiver Up")
             self.receiver_down = False
-            self.start_file("/home/pi/telefonoa/dial_tone.wav", loop=True)
-        else:
             if self.phone_manager.call_in_progress:
+                self.phone_manager.answer_call()
+            else:
+                # else we're picking the receiver up to begin dialing
+                # """For debugging the ringer."""
+                # print("try to ring")
+                # bus = dbus.SystemBus()
+                # ringer_service = dbus.Interface(bus.get_object('org.frank', '/'), 'phone.status')
+                # ringer_service.send_to_ringer(config.RING_START, reply_handler=self.nullhandler, error_handler=self.nullhandler)
+                self.start_file("/home/pi/bluetooth-phone/dial_tone.wav", loop=True)
+        else:
+            print("Receiver Down")
+            if self.phone_manager.call_in_progress:
+                print("Hanging up")
                 self.phone_manager.end_call()
             self.receiver_down = True
-            self.stop_file()
+            self.stop_file()  # kill thread that might be playing the dial tone.
 
     def start_file(self, filename, loop=False):
         """
@@ -246,6 +204,7 @@ class Telephone(object):
         :param filename: The name of the file to play
         :param loop: If the file should be played as a loop (like in the case of the dial tone)
         """
+        print("Play file : telephone object {0}".format(filename))
         self._thread = Thread(target=self.__play_file, args=[filename, loop])
         self._thread.start()
         self.playing_audio = True
@@ -261,8 +220,7 @@ class Telephone(object):
             # open a wav format music
             f = wave.open(filename, "rb")
             # open stream
-            stream = alsaaudio.PCM(type=alsaaudio.PCM_PLAYBACK,
-                                   mode=alsaaudio.PCM_NORMAL)
+            stream = alsaaudio.PCM(type=alsaaudio.PCM_PLAYBACK, mode=alsaaudio.PCM_NORMAL, device='plughw:1,0')
             stream.setchannels(f.getnchannels())
             stream.setrate(f.getframerate())
             # read data
@@ -272,12 +230,13 @@ class Telephone(object):
             while data and not self.stop_audio:
                 stream.write(data)
                 data = f.readframes(self.CHUNK)
+            f.close()
+            stream = None
         else:
             # open a wav format music
             f = wave.open(filename, "rb")
             # open stream
-            stream = alsaaudio.PCM(type=alsaaudio.PCM_PLAYBACK,
-                                   mode=alsaaudio.PCM_NORMAL)
+            stream = alsaaudio.PCM(type=alsaaudio.PCM_PLAYBACK, mode=alsaaudio.PCM_NORMAL, device='plughw:1,0')
             stream.setchannels(f.getnchannels())
             stream.setrate(f.getframerate())
             # read data
@@ -290,49 +249,66 @@ class Telephone(object):
                 while data and not self.stop_audio:
                     stream.write(data)
                     data = f.readframes(self.CHUNK)
+            f.close()
+            stream = None
 
     def stop_file(self):
         self.stop_audio = True
         self.playing_audio = False
+        print("stopping sound")
 
     def dialing_handler(self):
         """
         Main function of the telephone that handles the dialing if the receiver is lifted or hooked.
-        :return:
+        If only a single digit is dialed (with the handset up) its interpreted as being a speed dial
+        Number
+        :return: None
         """
         number = ''
         while not self.finish:
             if not self.receiver_down:  # Handling of the dialing when the receiver is lifted
                 try:
                     c = self.number_q.get(timeout=5)
+                    # # turn off dial tone as soon as a number is dialed.
+                    # if not number == '' and self.playing_audio:
+                    #     self.stop_file()
                     number += str(c)
                 except Queue.Empty:
                     if number is not '':
-                        print("Dialing: %s" % number)
-                        self.stop_file()
-                        self.phone_manager.call(number)
-                        number = ''
-                    pass
+                        if len(number) > 1:
+                            print("Dialing: %s" % number)
+                            self.stop_file()
+                            self.phone_manager.call(number)
+                            number = ''
+                        else:  # Handling of the dialing for speed dial from phonebook
+                            if self.playing_audio:
+                                self.stop_file()
+                            try:
+                                print("Selected %d" % c)
+                                if c == 9:
+                                    print("Turning system off")
+                                    self.start_file("/home/pi/bluetooth-phone/turnoff.wav")
+                                    time.sleep(6)
+                                    subprocess.call("sudo shutdown -h now", shell=True)
+                                elif c <= len(self.phonebook):
+                                    print("Shortcut action %d: Automatic dial" % c)
+                                    number = self.phonebook[c - 1]['number']
+                                    print(number)
+                                    time.sleep(4)
+                                    self.phone_manager.call(number)
+                                number = ''
+                            except Queue.Empty:
+                                pass
 
-            else:  # Handling of the dialing when the receiver is down
-                if self.playing_audio:
-                    self.stop_file()
-                try:
-                    c = self.number_q.get(timeout=5)
-                    print("Selected %d" % c)
-                    if c == 9:
-                        print("Turning system off")
-                        self.start_file("/home/pi/telefonoa/turnoff.wav")
-                        time.sleep(6)
-                        call("sudo shutdown -h now", shell=True)
-                    elif c <= len(self.phonebook):
-                        print("Shortcut action %d: Automatic dial" % c)
-                        number = self.phonebook[c - 1]['number']
-                        print(number)
-                        time.sleep(4)
-                        self.phone_manager.call(number)
-                except Queue.Empty:
-                    pass
+            else:
+                """
+                If the receiver is down the must clear the number and the queue constantly because 
+                noise on the dialer pins can cause spirious rising edges when the receiver is lifted or put down.
+                """
+                number = ''
+                if len(self.number_q.queue) >= 1:
+                    self.number_q.queue.clear()
+                    print("Queue Cleared")
 
     def close(self):
         self.rotary_dial.finish = True
@@ -341,12 +317,17 @@ class Telephone(object):
 
 
 if __name__ == '__main__':
-    HOERER_PIN = 13
-    NS_PIN = 19
 
-    t = Telephone(NS_PIN, HOERER_PIN)
+
+
+    #create and instance of the telephone
+    t = Telephone(config.NS_PIN, config.HOERER_PIN, config.DISCOVERABLE_PIN, config.VOLUME_PIN_DICT)
+
     try:
+        # enter the dialing handler loop
         t.dialing_handler()
     except KeyboardInterrupt:
+        print("stopped by keyboard")
         pass
     t.close()
+
